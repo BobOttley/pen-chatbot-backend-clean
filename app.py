@@ -8,7 +8,7 @@ import time
 # Load API key from .env file
 load_dotenv()
 
-# Create a new OpenAI client instance with your API key
+# Create a new OpenAI client instance
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
@@ -24,19 +24,23 @@ def chat():
         return jsonify({'reply': 'Please enter a message.'})
 
     try:
+        # Start a new thread
         thread = client.beta.threads.create()
 
+        # Add the user's message to the thread
         client.beta.threads.messages.create(
             thread_id=thread.id,
             role="user",
             content=user_input
         )
 
+        # Run the assistant on the thread
         run = client.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=ASSISTANT_ID
         )
 
+        # Wait for the run to complete
         while True:
             run_status = client.beta.threads.runs.retrieve(
                 thread_id=thread.id,
@@ -48,6 +52,7 @@ def chat():
                 return jsonify({'reply': 'Sorry, something went wrong.'})
             time.sleep(1)
 
+        # Get the assistant's reply
         messages = client.beta.threads.messages.list(thread_id=thread.id)
         reply = messages.data[0].content[0].text.value
         return jsonify({'reply': reply})
