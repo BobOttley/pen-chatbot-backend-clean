@@ -7,7 +7,9 @@ import time
 
 # Load API key from .env file
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Create a new OpenAI client instance with your API key
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 CORS(app)
@@ -22,21 +24,21 @@ def chat():
         return jsonify({'reply': 'Please enter a message.'})
 
     try:
-        thread = openai.beta.threads.create()
+        thread = client.beta.threads.create()
 
-        openai.beta.threads.messages.create(
+        client.beta.threads.messages.create(
             thread_id=thread.id,
             role="user",
             content=user_input
         )
 
-        run = openai.beta.threads.runs.create(
+        run = client.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=ASSISTANT_ID
         )
 
         while True:
-            run_status = openai.beta.threads.runs.retrieve(
+            run_status = client.beta.threads.runs.retrieve(
                 thread_id=thread.id,
                 run_id=run.id
             )
@@ -46,7 +48,7 @@ def chat():
                 return jsonify({'reply': 'Sorry, something went wrong.'})
             time.sleep(1)
 
-        messages = openai.beta.threads.messages.list(thread_id=thread.id)
+        messages = client.beta.threads.messages.list(thread_id=thread.id)
         reply = messages.data[0].content[0].text.value
         return jsonify({'reply': reply})
 
@@ -54,9 +56,7 @@ def chat():
         print("🔥 Error:", e)
         return jsonify({'reply': f"Error: {str(e)}"}), 500
 
-import os
-
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=port)
 
