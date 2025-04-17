@@ -27,20 +27,20 @@ def chat():
         # Start a new thread
         thread = client.beta.threads.create()
 
-        # Add the user's message to the thread
+        # Add user message to thread
         client.beta.threads.messages.create(
             thread_id=thread.id,
             role="user",
             content=user_input
         )
 
-        # Run the assistant on the thread
+        # Start assistant run
         run = client.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=ASSISTANT_ID
         )
 
-        # Wait for the run to complete
+        # Wait for run to complete
         while True:
             run_status = client.beta.threads.runs.retrieve(
                 thread_id=thread.id,
@@ -52,7 +52,7 @@ def chat():
                 return jsonify({'reply': 'Sorry, something went wrong.'})
             time.sleep(1)
 
-        # Get the assistant's reply
+        # Get assistant's response
         messages = client.beta.threads.messages.list(thread_id=thread.id)
         reply = messages.data[0].content[0].text.value
         return jsonify({'reply': reply})
