@@ -1,9 +1,16 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import openai
 from openai import OpenAI
 import os, time, json
-from dotenv import load_dotenv
+from dotenv import dotenv_values
+
+config = dotenv_values(".env")  
+API_KEY = config["OPENAI_API_KEY"]
+client = OpenAI(api_key=API_KEY)
+
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": 
+["https://pen-chatbot-site.s3.eu-west-2.amazonaws.com"]}})
 
 # 1. Load API key
 load_dotenv(override=True)
@@ -12,7 +19,7 @@ print("Loaded API key prefix:", API_KEY[:5])
 client = OpenAI(api_key=API_KEY)
 
 app = Flask(__name__)
-CORS(app, origins=["*"])
+CORS(app, resources={r"/*": {"origins": ["https://pen-chatbot-site.s3.eu-west-2.amazonaws.com"]}})
 
 # 2. System prompt for Cheltenham College
 SYSTEM_PROMPT_CHELTS = """You are PEN, the Personal Enrolment Navigator for Cheltenham College — a warm, knowledgeable digital 
