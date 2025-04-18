@@ -2,10 +2,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 import os, time, json
-from dotenv import dotenv_values
+import os
+API_KEY = os.getenv("OPENAI_API_KEY")
 
-config = dotenv_values(".env")  
-API_KEY = config["OPENAI_API_KEY"]
 client = OpenAI(api_key=API_KEY)
 
 app = Flask(__name__)
