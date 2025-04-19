@@ -1,26 +1,54 @@
-# app.py
-
 import os
 import json
+import logging
+from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from openai import OpenAI
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from openai import OpenAI, OpenAIError
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-# 1. Load environment and OpenAI client
+# 1. Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# 2. Load environment variables and validate
 load_dotenv(override=True)
-API_KEY = os.getenv("OPENAI_API_KEY", "")
-client = OpenAI(api_key=API_KEY)
+API_KEY = os.getenv("OPENAI_API_KEY")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "https://your-frontend-domain.com").split(",")
+if not API_KEY:
+    logger.critical("OPENAI_API_KEY is not set in .env file")
+    raise EnvironmentError("OPENAI_API_KEY is required")
 
-# 2. Initialise Flask and enable CORS
+# 3. Initialize OpenAI client
+client = OpenAI(api_key=API_KEY, timeout=10.0)
+
+# 4. Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+CORS(app, resources={r"/chat-*": {"origins": CORS_ORIGINS}})  # Update CORS_ORIGINS in .env
 
-@app.route("/", methods=["GET"])
-def health_check():
-    return jsonify({"status": "ok"})
+# 5. Initialize rate limiter (IP-based)
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["60 per minute"],
+    storage_uri=os.getenv("REDIS_URL", "memory://")  # Use Redis in production, memory in dev
+)
 
-# 3. System prompt for Cheltenham College
+# 6. Constants and configuration
+MAX_INPUT_LENGTH = 500
+
+# System prompts
 SYSTEM_PROMPT_CHELTS = """\
 You are PEN, the Personal Enrolment Navigator for Cheltenham College — a
 warm, knowledgeable digital assistant acting as a real member of the
@@ -38,7 +66,6 @@ Maintain a friendly, professional tone, and offer a personalised
 prospectus when appropriate.
 """
 
-# 4. Base system prompt for More House (context added dynamically)
 SYSTEM_PROMPT_MOREHOUSE = """\
 You are PEN for More House School in Knightsbridge — a warm, professional
 digital assistant dedicated to answering questions about More House only.
@@ -52,66 +79,114 @@ Always reply in clean, friendly paragraphs.
 Never output raw HTML or mention that you are an AI or reference internal files.
 """
 
-# 5. Load scraped paragraphs for More House
-with open("morehouse_paragraphs.json", encoding="utf-8") as f:
-    MOREHOUSE_PARAS = json.load(f)
+# 7. Load More House paragraphs (cached at startup)
+try:
+    with open("morehouse_paragraphs.json", encoding="utf-8") as f:
+        MOREHOUSE_PARAS = json.load(f)
+    logger.info("Successfully loaded morehouse_paragraphs.json")
+except Exception as e:
+    logger.critical("Failed to load morehouse_paragraphs.json: %s", e)
+    raise
 
+# 8. Utility function for OpenAI API calls
+@limiter.limit("60 per minute")
+def call_openai_api(system_prompt, user_input):
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4-turbo",
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input}
+            ]
+        )
+        return resp.choices[0].message.content
+    except OpenAIError as e:
+        logger.error("OpenAI API error: %s", e)
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in OpenAI API call: %s", e)
+        raise
+
+# 9. Health check endpoint
+@app.route("/", methods=["GET"])
+def health_check():
+    status = {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "morehouse_paras_loaded": len(MOREHOUSE_PARAS) > 0,
+        "api_key_configured": bool(API_KEY)
+    }
+    return jsonify(status)
+
+# 10. Cheltenham College chat endpoint
 @app.route("/chat-cheltenham", methods=["POST"])
 def chat_cheltenham():
-    user_input = request.json.get("message", "").strip()
-    if not user_input:
-        return jsonify({"reply": "Please enter a question."}), 400
-
     try:
-        resp = client.chat.completions.create(
-            model="gpt-4-turbo",
-            temperature=0.2,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_CHELTS},
-                {"role": "user",   "content": user_input}
-            ]
-        )
-        return jsonify({"reply": resp.choices[0].message.content})
-    except Exception as e:
-        print("[ERROR] OpenAI API call failed (Cheltenham):", e)
-        return jsonify({"reply": "Sorry, I couldn’t complete your request."}), 500
+        data = request.get_json()
+        user_input = data.get("message", "").strip()
+        
+        if not user_input:
+            return jsonify({"reply": "Please enter a question."}), 400
+        if len(user_input) > MAX_INPUT_LENGTH:
+            return jsonify({"reply": f"Input exceeds {MAX_INPUT_LENGTH} characters."}), 400
 
+        logger.info("Processing Cheltenham query: %s", user_input)
+        reply = call_openai_api(SYSTEM_PROMPT_CHELTS, user_input)
+        return jsonify({"reply": reply})
+    except ValueError:
+        logger.warning("Invalid JSON in request")
+        return jsonify({"reply": "Invalid request format."}), 400
+    except OpenAIError:
+        logger.error("OpenAI error in chat-cheltenham")
+        return jsonify({"reply": "Sorry, I'm having trouble processing that right now."}), 500
+    except Exception as e:
+        logger.error("Error in chat-cheltenham: %s", e)
+        return jsonify({"reply": "Sorry, something went wrong."}), 500
+
+# 11. More House chat endpoint
 @app.route("/chat-morehouse", methods=["POST"])
 def chat_morehouse():
-    user_input = request.json.get("message", "").strip()
-    if not user_input:
-        return jsonify({"reply": "Please enter a question."}), 400
-
-    # Prioritise paragraphs with open day events that contain real dates/times
-    query = user_input.lower()
-    event_keywords = ["open morning", "open evening", "open day"]
-    has_date_or_time = ["2025", "2026", "am", "pm", ":"]
-
-    matches = [
-        para for para in MOREHOUSE_PARAS
-        if any(ek in para.lower() for ek in event_keywords)
-        and any(ht in para.lower() for ht in has_date_or_time)
-    ]
-
-    # Combine all matching paragraphs and trim to 4000 characters max
-    combined = "\n\n".join(matches)
-    context = combined[:4000]
-
     try:
-        resp = client.chat.completions.create(
-            model="gpt-4-turbo",
-            temperature=0.2,
-            messages=[
-                {"role": "system", "content": f"{SYSTEM_PROMPT_MOREHOUSE}\n\nContext:\n{context}"},
-                {"role": "user",   "content": user_input}
-            ]
-        )
-        return jsonify({"reply": resp.choices[0].message.content})
+        data = request.get_json()
+        user_input = data.get("message", "").strip()
+        
+        if not user_input:
+            return jsonify({"reply": "Please enter a question."}), 400
+        if len(user_input) > MAX_INPUT_LENGTH:
+            return jsonify({"reply": f"Input exceeds {MAX_INPUT_LENGTH} characters."}), 400
+
+        logger.info("Processing More House query: %s", user_input)
+        
+        # Filter paragraphs for open day events with dates/times
+        event_keywords = ["open morning", "open evening", "open day"]
+        has_date_or_time = ["2025", "2026", "am", "pm", ":"]
+        matches = [
+            para for para in MOREHOUSE_PARAS
+            if any(ek in para.lower() for ek in event_keywords)
+            and any(ht in para.lower() for ht in has_date_or_time)
+        ]
+        
+        # Combine matches, trim to 4000 characters
+        combined = "\n\n".join(matches)
+        context = combined[:4000]
+        logger.info("Context size: %s characters", len(context))
+        
+        system_prompt = f"{SYSTEM_PROMPT_MOREHOUSE}\n\nContext:\n{context}"
+        reply = call_openai_api(system_prompt, user_input)
+        return jsonify({"reply": reply})
+    except ValueError:
+        logger.warning("Invalid JSON in request")
+        return jsonify({"reply": "Invalid request format."}), 400
+    except OpenAIError:
+        logger.error("OpenAI error in chat-morehouse")
+        return jsonify({"reply": "Sorry, I'm having trouble processing that right now."}), 500
     except Exception as e:
-        print("[ERROR] OpenAI API call failed (More House):", e)
-        return jsonify({"reply": "Sorry, I couldn’t complete your request."}), 500
+        logger.error("Error in chat-morehouse: %s", e)
+        return jsonify({"reply": "Sorry, something went wrong."}), 500
 
-# 6. Run the app (development server) on port 5001
+# 12. Run the app
+# For production, use: gunicorn app:app --workers=2 --bind=0.0.0.0:10000
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
-
+    logger.info("Starting Flask application on port 5001")
+    app.run(host="0.0.0.0", port=5001, debug=False)
