@@ -12,6 +12,9 @@ client = OpenAI(api_key=API_KEY)
 # 2. Flask + CORS
 app = Flask(__name__)
 CORS(app)
+@app.route("/", methods=["GET"])
+def health_check():
+    return jsonify({"status": "ok"})
 
 # 3. System prompt for Cheltenham College
 SYSTEM_PROMPT_CHELTS = """\
