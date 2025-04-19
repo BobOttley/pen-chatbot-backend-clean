@@ -1,17 +1,21 @@
+# app.py
+
+import os
+import json
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import os, json
 from openai import OpenAI
-from dotenv import load_dotenv
 
-# 1. Load your OpenAI key
+# 1. Load environment and OpenAI client
 load_dotenv(override=True)
 API_KEY = os.getenv("OPENAI_API_KEY", "")
 client = OpenAI(api_key=API_KEY)
 
-# 2. Flask + CORS
+# 2. Initialise Flask and enable CORS
 app = Flask(__name__)
 CORS(app)
+
 @app.route("/", methods=["GET"])
 def health_check():
     return jsonify({"status": "ok"})
@@ -27,81 +31,86 @@ Never output long unbroken blocks of text.
 Avoid bullet‑lists unless the user explicitly asks for one.
 Format every link in Markdown only, for example:
 [Visit Our Sports Page](https://www.cheltenhamcollege.org/college/sport/)
-Never include raw HTML tags or mention that you're an AI.
+Never include raw HTML tags or mention that you’re an AI.
 You know all about Cheltenham College’s academics, co‑curriculars,
 boarding life, fees, admissions, and ethos.
 Maintain a friendly, professional tone, and offer a personalised
 prospectus when appropriate.
 """
 
-# 4. Load More House paragraphs from local JSON
-with open("morehouse_paragraphs.json", encoding="utf-8") as f:
-    MOREHOUSE_PARAS = json.load(f)
-
-# Build a single block of reference text for More House
-COMBINED_MOREHOUSE = "\n\n".join(MOREHOUSE_PARAS)
-
-# 5. System prompt for More House School (embedding your scraped content)
-SYSTEM_PROMPT_MOREHOUSE = f"""\
+# 4. Base system prompt for More House (context added dynamically)
+SYSTEM_PROMPT_MOREHOUSE = """\
 You are PEN for More House School in Knightsbridge — a warm, professional
 digital assistant dedicated to answering questions about More House only.
 
 Only respond to questions directly related to More House School. Politely
 decline any unrelated topics.
 
-Use the following reference information from the official website in your
-responses when helpful:
-
-{COMBINED_MOREHOUSE}
+Use the provided context to inform your answers when helpful.
 
 Always reply in clean, friendly paragraphs.
 Never output raw HTML or mention that you are an AI or reference internal files.
 """
 
-# 6. Cheltenham endpoint
+# 5. Load scraped paragraphs for More House
+with open("morehouse_paragraphs.json", encoding="utf-8") as f:
+    MOREHOUSE_PARAS = json.load(f)
+
 @app.route("/chat-cheltenham", methods=["POST"])
 def chat_cheltenham():
     user_input = request.json.get("message", "").strip()
     if not user_input:
-        return jsonify({"reply": "Please enter a question."})
+        return jsonify({"reply": "Please enter a question."}), 400
 
-    resp = client.chat.completions.create(
-        model="gpt-4-turbo",
-        temperature=0.2,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_CHELTS},
-            {"role": "user",   "content": user_input}
-        ]
-    )
-    return jsonify({"reply": resp.choices[0].message.content})
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4-turbo",
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_CHELTS},
+                {"role": "user",   "content": user_input}
+            ]
+        )
+        return jsonify({"reply": resp.choices[0].message.content})
+    except Exception as e:
+        print("[ERROR] OpenAI API call failed (Cheltenham):", e)
+        return jsonify({"reply": "Sorry, I couldn’t complete your request."}), 500
 
-# 7. More House endpoint — file‑based retrieval
 @app.route("/chat-morehouse", methods=["POST"])
 def chat_morehouse():
     user_input = request.json.get("message", "").strip()
     if not user_input:
-        return jsonify({"reply": "Please enter a question."})
+        return jsonify({"reply": "Please enter a question."}), 400
 
-    # Simple bag‑of‑words retrieval of relevant paragraphs
+    # Improved keyword and date/time-based matching for event info
+    query = user_input.lower()
+    event_keywords = ["open morning", "open evening", "open day"]
+    has_date_or_time = ["2025", "2026", "am", "pm", ":"]
+
     matches = [
-        p for p in MOREHOUSE_PARAS
-        if any(tok in p.lower() for tok in user_input.lower().split())
+        para for para in MOREHOUSE_PARAS
+        if any(ek in para.lower() for ek in event_keywords)
+        and any(ht in para.lower() for ht in has_date_or_time)
     ]
-    context = "\n\n".join(matches[:10])  # cap at 10 paragraphs
 
-    full_system = SYSTEM_PROMPT_MOREHOUSE + "\n\nContext:\n" + context
+    # Use top 5 matches to stay under token limits
+    context = "\n\n".join(matches[:5])
 
-    resp = client.chat.completions.create(
-        model="gpt-4-turbo",
-        temperature=0.2,
-        messages=[
-            {"role": "system", "content": full_system},
-            {"role": "user",   "content": user_input}
-        ]
-    )
-    return jsonify({"reply": resp.choices[0].message.content})
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4-turbo",
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": f"{SYSTEM_PROMPT_MOREHOUSE}\n\nContext:\n{context}"},
+                {"role": "user",   "content": user_input}
+            ]
+        )
+        return jsonify({"reply": resp.choices[0].message.content})
+    except Exception as e:
+        print("[ERROR] OpenAI API call failed (More House):", e)
+        return jsonify({"reply": "Sorry, I couldn’t complete your request."}), 500
 
-# 8. Run server
+# 6. Run the app (development server) on port 5001
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True)
 
