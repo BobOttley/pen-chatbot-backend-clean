@@ -55,6 +55,22 @@ Use clean, friendly paragraphs.
 Never output HTML.
 Never mention you're an AI or reference internal files.
 """
+# Load More House data for use in system prompt
+with open("morehouse_paragraphs.json", "r") as f:
+    morehouse_data = json.load(f)
+
+combined_paragraphs = " ".join(morehouse_data)
+system_prompt_morehouse = f"""You are PEN, the Personal Enrolment Navigator for More House School — a warm, knowledgeable digital assistant acting as a real member of the admissions team.
+
+Only respond to questions directly related to More House School. Politely decline any unrelated topics.
+
+Use the following reference content in your responses where helpful:
+{combined_paragraphs}
+
+Always reply in clear paragraphs, not long unbroken text blocks.
+Avoid bullet points unless specifically asked.
+"""
+
 
 # 5. Cheltenham College endpoint — Chat Completions API
 @app.route("/chat-cheltenham", methods=["POST"])
