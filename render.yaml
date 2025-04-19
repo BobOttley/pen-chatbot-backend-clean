@@ -1,8 +1,3 @@
-disks:
-  - name: data
-    mountPath: /mnt/data
-    sizeGB: 1
-
 services:
   - type: web
     name: chatbot-api-dev
@@ -10,28 +5,9 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --workers=2 --bind=0.0.0.0:10000
-    disks:
-      - name: data
     envVars:
       - key: OPENAI_API_KEY
         sync: false
-      - key: CORS_ORIGINS
-        value: http://localhost:3000,https://your-frontend-domain.com
-      - key: PYTHON_VERSION
-        value: 3.11
-      - key: REDIS_URL
-        sync: false
-
-  - type: cron
-    name: morehouse-scraper
-    env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python cron_scrape.py
-    schedule: "0 0 * * *"
-    disks:
-      - name: data
-    envVars:
       - key: PYTHON_VERSION
         value: 3.11
 
