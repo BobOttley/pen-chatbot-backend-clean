@@ -28,6 +28,10 @@ if not API_KEY:
     raise EnvironmentError("OPENAI_API_KEY is required")
 
 # 3. Set up OpenAI client
+from openai import OpenAI
+API_KEY = os.getenv("OPENAI_API_KEY")
+if not API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable not set")
 client = OpenAI(api_key=API_KEY)
 
 # 4. Flask setup
