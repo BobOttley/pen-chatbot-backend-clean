@@ -69,26 +69,34 @@ def chat_cheltenham():
     )
     return jsonify({"reply": resp.choices[0].message.content})
 
-# 7. More House endpoint with retrieval
+# 7. More House endpoint — file‑based retrieval
 @app.route("/chat-morehouse", methods=["POST"])
 def chat_morehouse():
     user_input = request.json.get("message", "").strip()
     if not user_input:
         return jsonify({"reply": "Please enter a question."})
 
-    keywords = user_input.lower().split()
-    matches = [p for p in MOREHOUSE_PARAS if any(k in p.lower() for k in 
-keywords)]
-    context = "\n\n".join(matches[:10])
+    # naive bag‑of‑words match
+    matches = [
+        p for p in MOREHOUSE_PARAS
+        if any(tok in p.lower() for tok in user_input.lower().split())
+    ]
+    context = "\n\n".join(matches[:12])  # cap context for performance
 
+    # build system + context
+    full_system = SYSTEM_PROMPT_MOREHOUSE + "\n\n" + context
+    messages = [
+        {"role": "system", "content": full_system},
+        {"role": "user",   "content": user_input}
+    ]
+
+    # call OpenAI
     resp = client.chat.completions.create(
         model="gpt-4-turbo",
-        temperature=0.2,
-        messages=[
-            {"role": "system", "content": system_prompt_morehouse + "\n\n" + context},
-            {"role": "user",   "content": user_input}
-        ]
+        messages=messages,
+        temperature=0.2
     )
+
     return jsonify({"reply": resp.choices[0].message.content})
 
 # 8. Run server
