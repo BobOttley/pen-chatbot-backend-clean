@@ -82,7 +82,7 @@ def chat_morehouse():
     if not user_input:
         return jsonify({"reply": "Please enter a question."}), 400
 
-    # Improved keyword and date/time-based matching for event info
+    # Prioritise paragraphs with open day events that contain real dates/times
     query = user_input.lower()
     event_keywords = ["open morning", "open evening", "open day"]
     has_date_or_time = ["2025", "2026", "am", "pm", ":"]
@@ -93,8 +93,9 @@ def chat_morehouse():
         and any(ht in para.lower() for ht in has_date_or_time)
     ]
 
-    # Use top 5 matches to stay under token limits
-    context = "\n\n".join(matches[:5])
+    # Combine all matching paragraphs and trim to 4000 characters max
+    combined = "\n\n".join(matches)
+    context = combined[:4000]
 
     try:
         resp = client.chat.completions.create(
