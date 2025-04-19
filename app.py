@@ -37,6 +37,29 @@ except Exception as e:
 @app.route("/")
 def health():
     return jsonify({"status": "ok"})
+@app.route("/chat-morehouse", methods=["POST"])
+def chat_morehouse():
+    try:
+        data = request.get_json()
+        if not data or "message" not in data:
+            return jsonify({"error": "Missing message in request body"}), 400
+
+        user_message = data["message"]
+        context = "\n".join(MOREHOUSE_PARAS)
+        prompt = f"Answer the following question based on the More House School information provided:\n\n{context}\n\nQuestion: {user_message}\n\nAnswer:"
+
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150
+        )
+
+        answer = response.choices[0].message.content.strip()
+        return jsonify({"response": answer})
+
+    except Exception as e:
+        logger.error("Error in /chat-morehouse: %s", e)
+        return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))  # 👈 this matches Render's setting
