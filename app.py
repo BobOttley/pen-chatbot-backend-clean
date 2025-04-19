@@ -85,8 +85,7 @@ keywords)]
         model="gpt-4-turbo",
         temperature=0.2,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_MOREHOUSE + "\n\n" 
-+ context},
+            {"role": "system", "content": system_prompt_morehouse + "\n\n" + context},
             {"role": "user",   "content": user_input}
         ]
     )
