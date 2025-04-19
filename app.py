@@ -30,7 +30,7 @@ if not API_KEY:
     raise EnvironmentError("OPENAI_API_KEY is required")
 
 # 3. Initialize OpenAI client
-client = OpenAI(api_key=API_KEY, timeout=10.0)
+client = OpenAI(api_key=API_KEY)
 
 # 4. Initialize Flask app
 app = Flask(__name__)
