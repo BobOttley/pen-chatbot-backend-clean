@@ -1,7 +1,7 @@
 flask==2.3.3
 flask-cors==4.0.0
 python-dotenv==1.0.0
-openai==1.10.0
+openai==1.12.0
 werkzeug==3.0.1
 flask-limiter==3.5.0
 redis==5.0.1
